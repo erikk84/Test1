@@ -173,12 +173,9 @@
     
     <div id="message"></div>
     
-    <script src="./three.min.js"></script>
     <script>
-        // Check if THREE is available, otherwise use fallback 2D canvas version
+        // Check if THREE is available, otherwise use 2D canvas fallback
         if (typeof THREE === 'undefined') {
-            console.warn('Three.js not loaded, using 2D canvas fallback');
-            
             // 2D Canvas fallback implementation
             const canvas = document.getElementById('gameCanvas');
             const ctx = canvas.getContext('2d');
@@ -190,10 +187,13 @@
             resizeCanvas();
             window.addEventListener('resize', resizeCanvas);
             
+            // Game constants
+            const GRAB_SUCCESS_RATE = 0.7; // 70% chance to grab
+            
             // Game state
             let coins = 5;
             let gameActive = false;
-            let clawX = canvas.width / 2;
+            let clawX = window.innerWidth / 2;
             let clawY = 100;
             let clawTargetY = 100;
             let clawDescending = false;
@@ -204,15 +204,20 @@
             const prizes = [];
             const prizeColors = ['#FF6B6B', '#4ECDC4', '#FFE66D', '#95E1D3', '#F38181'];
             
-            for (let i = 0; i < 12; i++) {
-                prizes.push({
-                    x: Math.random() * (canvas.width - 100) + 50,
-                    y: canvas.height - 150 - Math.random() * 100,
-                    size: 30 + Math.random() * 20,
-                    color: prizeColors[Math.floor(Math.random() * prizeColors.length)],
-                    shape: Math.floor(Math.random() * 3) // 0: circle, 1: square, 2: triangle
-                });
+            function initPrizes() {
+                prizes.length = 0;
+                for (let i = 0; i < 12; i++) {
+                    prizes.push({
+                        x: Math.random() * (canvas.width - 100) + 50,
+                        y: canvas.height - 150 - Math.random() * 100,
+                        size: 30 + Math.random() * 20,
+                        color: prizeColors[Math.floor(Math.random() * prizeColors.length)],
+                        shape: Math.floor(Math.random() * 3) // 0: circle, 1: square, 2: triangle
+                    });
+                }
             }
+            
+            initPrizes();
             
             // Controls
             const keys = {};
@@ -246,15 +251,19 @@
                 const touch = e.touches[0];
                 const rect = joystick.getBoundingClientRect();
                 const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
                 
                 let deltaX = touch.clientX - centerX;
+                let deltaY = touch.clientY - centerY;
                 const maxDistance = 45;
                 
-                if (Math.abs(deltaX) > maxDistance) {
-                    deltaX = Math.sign(deltaX) * maxDistance;
+                const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+                if (distance > maxDistance) {
+                    deltaX = (deltaX / distance) * maxDistance;
+                    deltaY = (deltaY / distance) * maxDistance;
                 }
                 
-                joystickKnob.style.transform = `translate(calc(-50% + ${deltaX}px), -50%)`;
+                joystickKnob.style.transform = `translate(calc(-50% + ${deltaX}px), calc(-50% + ${deltaY}px))`;
                 
                 clawX += (deltaX / maxDistance) * 5;
                 clawX = Math.max(50, Math.min(canvas.width - 50, clawX));
@@ -334,7 +343,7 @@
                     );
                     
                     if (distance < 40) {
-                        if (Math.random() > 0.3) {
+                        if (Math.random() < GRAB_SUCCESS_RATE) {
                             return i;
                         }
                     }
@@ -510,14 +519,17 @@
             
         } else {
             // Original Three.js version
-        
-        // Game state
-        let coins = 5;
-        let gameActive = false;
-        let clawMoving = false;
-        let clawDescending = false;
-        let clawGrabbing = false;
-        let grabbedPrize = null;
+            
+            // Game constants
+            const GRAB_SUCCESS_RATE = 0.7; // 70% chance to grab
+            
+            // Game state
+            let coins = 5;
+            let gameActive = false;
+            let clawMoving = false;
+            let clawDescending = false;
+            let clawGrabbing = false;
+            let grabbedPrize = null;
         
         // Three.js setup
         const scene = new THREE.Scene();
@@ -812,7 +824,7 @@
                 
                 if (distance < 0.4) {
                     // Grab with some randomness
-                    if (Math.random() > 0.3) {
+                    if (Math.random() < GRAB_SUCCESS_RATE) {
                         grabbedPrize = prize;
                         return true;
                     }
