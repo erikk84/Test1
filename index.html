@@ -1,1 +1,915 @@
-a
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Claw Machine - Grijpkraan Spel</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            touch-action: none;
+        }
+        
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100vh;
+            background: #1a1a2e;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            padding: 20px;
+            color: white;
+            font-size: 18px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+            pointer-events: none;
+        }
+        
+        #coins {
+            background: rgba(0,0,0,0.6);
+            padding: 10px 20px;
+            border-radius: 10px;
+            display: inline-block;
+        }
+        
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            color: white;
+            background: rgba(0,0,0,0.6);
+            padding: 15px 25px;
+            border-radius: 15px;
+            pointer-events: auto;
+        }
+        
+        #insertCoin {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            border: none;
+            color: white;
+            padding: 15px 30px;
+            font-size: 20px;
+            font-weight: bold;
+            border-radius: 10px;
+            cursor: pointer;
+            margin: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            transition: transform 0.1s;
+        }
+        
+        #insertCoin:hover {
+            transform: scale(1.05);
+        }
+        
+        #insertCoin:active {
+            transform: scale(0.95);
+        }
+        
+        #dropButton {
+            background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+            border: none;
+            color: white;
+            padding: 15px 30px;
+            font-size: 20px;
+            font-weight: bold;
+            border-radius: 10px;
+            cursor: pointer;
+            margin: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            transition: transform 0.1s;
+            display: none;
+        }
+        
+        #dropButton:hover {
+            transform: scale(1.05);
+        }
+        
+        #dropButton:active {
+            transform: scale(0.95);
+        }
+        
+        #joystick {
+            position: absolute;
+            bottom: 180px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 150px;
+            height: 150px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 50%;
+            border: 3px solid rgba(255,255,255,0.5);
+            display: none;
+            pointer-events: auto;
+        }
+        
+        #joystickKnob {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            background: rgba(255,255,255,0.8);
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+        
+        #instructions {
+            font-size: 14px;
+            margin-top: 10px;
+            opacity: 0.9;
+        }
+        
+        #message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            font-size: 24px;
+            display: none;
+            text-align: center;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    
+    <div id="ui">
+        <div id="coins">💰 Munten: <span id="coinCount">5</span></div>
+    </div>
+    
+    <div id="controls">
+        <button id="insertCoin">🪙 Muntje Inwerpen</button>
+        <button id="dropButton">⬇️ Laat Vallen!</button>
+        <div id="instructions">
+            Desktop: Pijltjestoetsen om te bewegen<br>
+            Mobiel: Sleep met je vinger<br>
+            Spatiebalk/Knop: Grijper laten zakken
+        </div>
+    </div>
+    
+    <div id="joystick">
+        <div id="joystickKnob"></div>
+    </div>
+    
+    <div id="message"></div>
+    
+    <script>
+        // Check if THREE is available, otherwise use 2D canvas fallback
+        if (typeof THREE === 'undefined') {
+            // 2D Canvas fallback implementation
+            const canvas = document.getElementById('gameCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            function resizeCanvas() {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            }
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            
+            // Game constants
+            const GRAB_SUCCESS_RATE = 0.7; // 70% chance to grab
+            
+            // Game state
+            let coins = 5;
+            let gameActive = false;
+            let clawX = window.innerWidth / 2;
+            let clawY = 100;
+            let clawTargetY = 100;
+            let clawDescending = false;
+            let clawGrabbing = false;
+            let grabbedPrize = null;
+            
+            // Prizes
+            const prizes = [];
+            const prizeColors = ['#FF6B6B', '#4ECDC4', '#FFE66D', '#95E1D3', '#F38181'];
+            
+            function initPrizes() {
+                prizes.length = 0;
+                for (let i = 0; i < 12; i++) {
+                    prizes.push({
+                        x: Math.random() * (canvas.width - 100) + 50,
+                        y: canvas.height - 150 - Math.random() * 100,
+                        size: 30 + Math.random() * 20,
+                        color: prizeColors[Math.floor(Math.random() * prizeColors.length)],
+                        shape: Math.floor(Math.random() * 3) // 0: circle, 1: square, 2: triangle
+                    });
+                }
+            }
+            
+            initPrizes();
+            
+            // Controls
+            const keys = {};
+            
+            document.addEventListener('keydown', (e) => {
+                keys[e.key] = true;
+                if (e.key === ' ' && gameActive && !clawDescending) {
+                    e.preventDefault();
+                    dropClaw();
+                }
+            });
+            
+            document.addEventListener('keyup', (e) => {
+                keys[e.key] = false;
+            });
+            
+            // Touch controls
+            const joystick = document.getElementById('joystick');
+            const joystickKnob = document.getElementById('joystickKnob');
+            let joystickActive = false;
+            
+            joystick.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                joystickActive = true;
+            });
+            
+            joystick.addEventListener('touchmove', (e) => {
+                if (!joystickActive || !gameActive || clawDescending) return;
+                e.preventDefault();
+                
+                const touch = e.touches[0];
+                const rect = joystick.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                
+                let deltaX = touch.clientX - centerX;
+                let deltaY = touch.clientY - centerY;
+                const maxDistance = 45;
+                
+                const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+                if (distance > maxDistance) {
+                    deltaX = (deltaX / distance) * maxDistance;
+                    deltaY = (deltaY / distance) * maxDistance;
+                }
+                
+                joystickKnob.style.transform = `translate(calc(-50% + ${deltaX}px), calc(-50% + ${deltaY}px))`;
+                
+                clawX += (deltaX / maxDistance) * 5;
+                clawX = Math.max(50, Math.min(canvas.width - 50, clawX));
+            });
+            
+            joystick.addEventListener('touchend', () => {
+                joystickActive = false;
+                joystickKnob.style.transform = 'translate(-50%, -50%)';
+            });
+            
+            // Mouse drag
+            let isDragging = false;
+            
+            canvas.addEventListener('mousedown', (e) => {
+                if (gameActive && !clawDescending) {
+                    isDragging = true;
+                }
+            });
+            
+            canvas.addEventListener('mousemove', (e) => {
+                if (isDragging && gameActive && !clawDescending) {
+                    clawX = e.clientX;
+                    clawX = Math.max(50, Math.min(canvas.width - 50, clawX));
+                }
+            });
+            
+            canvas.addEventListener('mouseup', () => {
+                isDragging = false;
+            });
+            
+            // Coin insertion
+            document.getElementById('insertCoin').addEventListener('click', () => {
+                if (coins > 0 && !gameActive) {
+                    coins--;
+                    document.getElementById('coinCount').textContent = coins;
+                    gameActive = true;
+                    document.getElementById('insertCoin').style.display = 'none';
+                    document.getElementById('dropButton').style.display = 'inline-block';
+                    
+                    if ('ontouchstart' in window) {
+                        joystick.style.display = 'block';
+                    }
+                    
+                    showMessage('Beweeg de grijper en laat vallen!');
+                } else if (coins === 0) {
+                    showMessage('Geen munten meer! Spel over.');
+                }
+            });
+            
+            document.getElementById('dropButton').addEventListener('click', () => {
+                if (gameActive && !clawDescending) {
+                    dropClaw();
+                }
+            });
+            
+            function showMessage(text) {
+                const messageEl = document.getElementById('message');
+                messageEl.textContent = text;
+                messageEl.style.display = 'block';
+                setTimeout(() => {
+                    messageEl.style.display = 'none';
+                }, 2000);
+            }
+            
+            function dropClaw() {
+                clawDescending = true;
+                clawTargetY = canvas.height - 200;
+                document.getElementById('dropButton').disabled = true;
+            }
+            
+            function checkPrizeGrab() {
+                for (let i = 0; i < prizes.length; i++) {
+                    const prize = prizes[i];
+                    const distance = Math.sqrt(
+                        Math.pow(prize.x - clawX, 2) +
+                        Math.pow(prize.y - clawY, 2)
+                    );
+                    
+                    if (distance < 40) {
+                        if (Math.random() < GRAB_SUCCESS_RATE) {
+                            return i;
+                        }
+                    }
+                }
+                return -1;
+            }
+            
+            function drawPrize(prize, x, y) {
+                ctx.fillStyle = prize.color;
+                ctx.strokeStyle = '#333';
+                ctx.lineWidth = 2;
+                
+                if (prize.shape === 0) {
+                    // Circle
+                    ctx.beginPath();
+                    ctx.arc(x, y, prize.size / 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.stroke();
+                } else if (prize.shape === 1) {
+                    // Square
+                    ctx.fillRect(x - prize.size / 2, y - prize.size / 2, prize.size, prize.size);
+                    ctx.strokeRect(x - prize.size / 2, y - prize.size / 2, prize.size, prize.size);
+                } else {
+                    // Triangle
+                    ctx.beginPath();
+                    ctx.moveTo(x, y - prize.size / 2);
+                    ctx.lineTo(x + prize.size / 2, y + prize.size / 2);
+                    ctx.lineTo(x - prize.size / 2, y + prize.size / 2);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.stroke();
+                }
+            }
+            
+            function drawClaw(x, y) {
+                // Cable
+                ctx.strokeStyle = '#333';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(x, 50);
+                ctx.lineTo(x, y);
+                ctx.stroke();
+                
+                // Claw head
+                ctx.fillStyle = '#FFD700';
+                ctx.strokeStyle = '#333';
+                ctx.lineWidth = 2;
+                
+                // Main body
+                ctx.beginPath();
+                ctx.arc(x, y, 20, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+                
+                // Claw fingers
+                const fingerLength = clawGrabbing ? 15 : 25;
+                ctx.strokeStyle = '#C0C0C0';
+                ctx.lineWidth = 4;
+                
+                for (let i = 0; i < 4; i++) {
+                    const angle = (i / 4) * Math.PI * 2;
+                    ctx.beginPath();
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(
+                        x + Math.cos(angle) * fingerLength,
+                        y + Math.sin(angle) * fingerLength
+                    );
+                    ctx.stroke();
+                }
+            }
+            
+            function draw() {
+                // Clear canvas
+                ctx.fillStyle = '#1a1a2e';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Draw cabinet
+                ctx.strokeStyle = '#FF1493';
+                ctx.lineWidth = 10;
+                ctx.strokeRect(20, 80, canvas.width - 40, canvas.height - 180);
+                
+                // Draw floor
+                ctx.fillStyle = '#8B4513';
+                ctx.fillRect(20, canvas.height - 120, canvas.width - 40, 20);
+                
+                // Draw prizes
+                for (const prize of prizes) {
+                    if (prize !== grabbedPrize) {
+                        drawPrize(prize, prize.x, prize.y);
+                    }
+                }
+                
+                // Draw grabbed prize
+                if (grabbedPrize) {
+                    drawPrize(grabbedPrize, clawX, clawY + 30);
+                }
+                
+                // Draw claw
+                drawClaw(clawX, clawY);
+                
+                // Draw top rail
+                ctx.fillStyle = '#FF1493';
+                ctx.fillRect(20, 50, canvas.width - 40, 30);
+            }
+            
+            function update() {
+                // Keyboard controls
+                if (gameActive && !clawDescending) {
+                    const speed = 5;
+                    if (keys['ArrowLeft']) clawX -= speed;
+                    if (keys['ArrowRight']) clawX += speed;
+                    
+                    clawX = Math.max(50, Math.min(canvas.width - 50, clawX));
+                }
+                
+                // Claw descending
+                if (clawDescending && !clawGrabbing) {
+                    clawY += 5;
+                    
+                    if (clawY >= clawTargetY) {
+                        clawGrabbing = true;
+                        const prizeIndex = checkPrizeGrab();
+                        if (prizeIndex !== -1) {
+                            grabbedPrize = prizes[prizeIndex];
+                        }
+                    }
+                }
+                
+                // Claw ascending
+                if (clawGrabbing) {
+                    clawY -= 5;
+                    
+                    if (clawY <= 100) {
+                        if (grabbedPrize) {
+                            showMessage('🎉 Prijs gewonnen!');
+                            const index = prizes.indexOf(grabbedPrize);
+                            if (index > -1) prizes.splice(index, 1);
+                            
+                            // Add new prize
+                            prizes.push({
+                                x: Math.random() * (canvas.width - 100) + 50,
+                                y: canvas.height - 150 - Math.random() * 100,
+                                size: 30 + Math.random() * 20,
+                                color: prizeColors[Math.floor(Math.random() * prizeColors.length)],
+                                shape: Math.floor(Math.random() * 3)
+                            });
+                        } else {
+                            showMessage('Helaas! Probeer opnieuw.');
+                        }
+                        
+                        // Reset
+                        clawDescending = false;
+                        clawGrabbing = false;
+                        grabbedPrize = null;
+                        gameActive = false;
+                        clawY = 100;
+                        clawTargetY = 100;
+                        document.getElementById('insertCoin').style.display = 'inline-block';
+                        document.getElementById('dropButton').style.display = 'none';
+                        document.getElementById('dropButton').disabled = false;
+                        joystick.style.display = 'none';
+                    }
+                }
+            }
+            
+            function gameLoop() {
+                update();
+                draw();
+                requestAnimationFrame(gameLoop);
+            }
+            
+            gameLoop();
+            
+        } else {
+            // Original Three.js version
+            
+            // Game constants
+            const GRAB_SUCCESS_RATE = 0.7; // 70% chance to grab
+            
+            // Game state
+            let coins = 5;
+            let gameActive = false;
+            let clawMoving = false;
+            let clawDescending = false;
+            let clawGrabbing = false;
+            let grabbedPrize = null;
+        
+        // Three.js setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ 
+            canvas: document.getElementById('gameCanvas'),
+            antialias: true 
+        });
+        
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(5, 10, 5);
+        directionalLight.castShadow = true;
+        directionalLight.shadow.camera.left = -10;
+        directionalLight.shadow.camera.right = 10;
+        directionalLight.shadow.camera.top = 10;
+        directionalLight.shadow.camera.bottom = -10;
+        scene.add(directionalLight);
+        
+        // Claw machine cabinet
+        const cabinetGroup = new THREE.Group();
+        
+        // Floor
+        const floorGeometry = new THREE.BoxGeometry(8, 0.2, 6);
+        const floorMaterial = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+        const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+        floor.position.y = -2;
+        floor.receiveShadow = true;
+        cabinetGroup.add(floor);
+        
+        // Glass walls
+        const glassMaterial = new THREE.MeshPhysicalMaterial({ 
+            color: 0x88ccff,
+            transparent: true,
+            opacity: 0.3,
+            metalness: 0.1,
+            roughness: 0.1
+        });
+        
+        const frontWall = new THREE.Mesh(new THREE.BoxGeometry(8, 6, 0.1), glassMaterial);
+        frontWall.position.set(0, 1, 3);
+        cabinetGroup.add(frontWall);
+        
+        const backWall = new THREE.Mesh(new THREE.BoxGeometry(8, 6, 0.1), glassMaterial);
+        backWall.position.set(0, 1, -3);
+        cabinetGroup.add(backWall);
+        
+        const leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.1, 6, 6), glassMaterial);
+        leftWall.position.set(-4, 1, 0);
+        cabinetGroup.add(leftWall);
+        
+        const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.1, 6, 6), glassMaterial);
+        rightWall.position.set(4, 1, 0);
+        cabinetGroup.add(rightWall);
+        
+        // Top of cabinet
+        const topCabinetGeometry = new THREE.BoxGeometry(8, 0.2, 6);
+        const topCabinetMaterial = new THREE.MeshStandardMaterial({ color: 0xFF1493 });
+        const topCabinet = new THREE.Mesh(topCabinetGeometry, topCabinetMaterial);
+        topCabinet.position.y = 4;
+        cabinetGroup.add(topCabinet);
+        
+        scene.add(cabinetGroup);
+        
+        // Claw mechanism
+        const clawGroup = new THREE.Group();
+        
+        // Claw cable
+        const cableGeometry = new THREE.CylinderGeometry(0.05, 0.05, 2, 8);
+        const cableMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
+        const cable = new THREE.Mesh(cableGeometry, cableMaterial);
+        cable.position.y = -1;
+        clawGroup.add(cable);
+        
+        // Claw head
+        const clawHeadGeometry = new THREE.ConeGeometry(0.3, 0.5, 8);
+        const clawHeadMaterial = new THREE.MeshStandardMaterial({ color: 0xFFD700 });
+        const clawHead = new THREE.Mesh(clawHeadGeometry, clawHeadMaterial);
+        clawHead.position.y = -2.25;
+        clawHead.rotation.x = Math.PI;
+        clawHead.castShadow = true;
+        clawGroup.add(clawHead);
+        
+        // Claw fingers
+        const fingerGeometry = new THREE.BoxGeometry(0.1, 0.4, 0.1);
+        const fingerMaterial = new THREE.MeshStandardMaterial({ color: 0xC0C0C0 });
+        
+        for (let i = 0; i < 4; i++) {
+            const finger = new THREE.Mesh(fingerGeometry, fingerMaterial);
+            const angle = (i / 4) * Math.PI * 2;
+            finger.position.x = Math.cos(angle) * 0.25;
+            finger.position.z = Math.sin(angle) * 0.25;
+            finger.position.y = -2.5;
+            finger.rotation.x = Math.PI / 6;
+            finger.castShadow = true;
+            clawGroup.add(finger);
+        }
+        
+        clawGroup.position.set(0, 3.5, 0);
+        scene.add(clawGroup);
+        
+        // Prizes
+        const prizes = [];
+        const prizeColors = [0xFF6B6B, 0x4ECDC4, 0xFFE66D, 0x95E1D3, 0xF38181];
+        const prizeShapes = ['box', 'sphere', 'cylinder'];
+        
+        function createPrize(x, z) {
+            const shape = prizeShapes[Math.floor(Math.random() * prizeShapes.length)];
+            const color = prizeColors[Math.floor(Math.random() * prizeColors.length)];
+            let geometry;
+            
+            if (shape === 'box') {
+                geometry = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+            } else if (shape === 'sphere') {
+                geometry = new THREE.SphereGeometry(0.3, 16, 16);
+            } else {
+                geometry = new THREE.CylinderGeometry(0.25, 0.25, 0.5, 16);
+            }
+            
+            const material = new THREE.MeshStandardMaterial({ color: color });
+            const prize = new THREE.Mesh(geometry, material);
+            prize.position.set(x, -1.65, z);
+            prize.castShadow = true;
+            prize.receiveShadow = true;
+            
+            prizes.push(prize);
+            scene.add(prize);
+        }
+        
+        // Create initial prizes
+        for (let i = 0; i < 12; i++) {
+            const x = (Math.random() - 0.5) * 6;
+            const z = (Math.random() - 0.5) * 4;
+            createPrize(x, z);
+        }
+        
+        // Camera position
+        camera.position.set(0, 3, 10);
+        camera.lookAt(0, 0, 0);
+        
+        // Controls
+        const keys = {};
+        let touchStartX = 0;
+        let touchStartY = 0;
+        let joystickActive = false;
+        
+        document.addEventListener('keydown', (e) => {
+            keys[e.key] = true;
+            if (e.key === ' ' && gameActive && !clawDescending) {
+                e.preventDefault();
+                dropClaw();
+            }
+        });
+        
+        document.addEventListener('keyup', (e) => {
+            keys[e.key] = false;
+        });
+        
+        // Touch controls for mobile
+        const joystick = document.getElementById('joystick');
+        const joystickKnob = document.getElementById('joystickKnob');
+        
+        joystick.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            joystickActive = true;
+        });
+        
+        joystick.addEventListener('touchmove', (e) => {
+            if (!joystickActive || !gameActive || clawDescending) return;
+            e.preventDefault();
+            
+            const touch = e.touches[0];
+            const rect = joystick.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+            
+            let deltaX = touch.clientX - centerX;
+            let deltaY = touch.clientY - centerY;
+            
+            const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+            const maxDistance = 45;
+            
+            if (distance > maxDistance) {
+                deltaX = (deltaX / distance) * maxDistance;
+                deltaY = (deltaY / distance) * maxDistance;
+            }
+            
+            joystickKnob.style.transform = `translate(calc(-50% + ${deltaX}px), calc(-50% + ${deltaY}px))`;
+            
+            // Move claw
+            const speed = 0.05;
+            clawGroup.position.x += (deltaX / maxDistance) * speed;
+            clawGroup.position.z += (deltaY / maxDistance) * speed;
+            
+            // Limit claw movement
+            clawGroup.position.x = Math.max(-3.5, Math.min(3.5, clawGroup.position.x));
+            clawGroup.position.z = Math.max(-2.5, Math.min(2.5, clawGroup.position.z));
+        });
+        
+        joystick.addEventListener('touchend', () => {
+            joystickActive = false;
+            joystickKnob.style.transform = 'translate(-50%, -50%)';
+        });
+        
+        // Mouse drag controls for desktop
+        let isDragging = false;
+        let previousMouseX = 0;
+        let previousMouseY = 0;
+        
+        document.addEventListener('mousedown', (e) => {
+            if (gameActive && !clawDescending && e.target === renderer.domElement) {
+                isDragging = true;
+                previousMouseX = e.clientX;
+                previousMouseY = e.clientY;
+            }
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+            if (isDragging && gameActive && !clawDescending) {
+                const deltaX = e.clientX - previousMouseX;
+                const deltaY = e.clientY - previousMouseY;
+                
+                clawGroup.position.x += deltaX * 0.01;
+                clawGroup.position.z += deltaY * 0.01;
+                
+                // Limit claw movement
+                clawGroup.position.x = Math.max(-3.5, Math.min(3.5, clawGroup.position.x));
+                clawGroup.position.z = Math.max(-2.5, Math.min(2.5, clawGroup.position.z));
+                
+                previousMouseX = e.clientX;
+                previousMouseY = e.clientY;
+            }
+        });
+        
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+        
+        // Coin insertion
+        document.getElementById('insertCoin').addEventListener('click', () => {
+            if (coins > 0 && !gameActive) {
+                coins--;
+                document.getElementById('coinCount').textContent = coins;
+                gameActive = true;
+                document.getElementById('insertCoin').style.display = 'none';
+                document.getElementById('dropButton').style.display = 'inline-block';
+                
+                // Show joystick on mobile
+                if ('ontouchstart' in window) {
+                    joystick.style.display = 'block';
+                }
+                
+                showMessage('Beweeg de grijper en laat vallen!');
+            } else if (coins === 0) {
+                showMessage('Geen munten meer! Spel over.');
+            }
+        });
+        
+        document.getElementById('dropButton').addEventListener('click', () => {
+            if (gameActive && !clawDescending) {
+                dropClaw();
+            }
+        });
+        
+        function showMessage(text) {
+            const messageEl = document.getElementById('message');
+            messageEl.textContent = text;
+            messageEl.style.display = 'block';
+            setTimeout(() => {
+                messageEl.style.display = 'none';
+            }, 2000);
+        }
+        
+        function dropClaw() {
+            clawDescending = true;
+            document.getElementById('dropButton').disabled = true;
+        }
+        
+        function checkPrizeGrab() {
+            for (let prize of prizes) {
+                const distance = Math.sqrt(
+                    Math.pow(prize.position.x - clawGroup.position.x, 2) +
+                    Math.pow(prize.position.z - clawGroup.position.z, 2)
+                );
+                
+                if (distance < 0.4) {
+                    // Grab with some randomness
+                    if (Math.random() < GRAB_SUCCESS_RATE) {
+                        grabbedPrize = prize;
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // Keyboard controls
+            if (gameActive && !clawDescending) {
+                const speed = 0.05;
+                if (keys['ArrowLeft']) clawGroup.position.x -= speed;
+                if (keys['ArrowRight']) clawGroup.position.x += speed;
+                if (keys['ArrowUp']) clawGroup.position.z -= speed;
+                if (keys['ArrowDown']) clawGroup.position.z += speed;
+                
+                // Limit claw movement
+                clawGroup.position.x = Math.max(-3.5, Math.min(3.5, clawGroup.position.x));
+                clawGroup.position.z = Math.max(-2.5, Math.min(2.5, clawGroup.position.z));
+            }
+            
+            // Claw descending animation
+            if (clawDescending && !clawGrabbing) {
+                clawGroup.position.y -= 0.05;
+                
+                if (clawGroup.position.y <= -0.5) {
+                    clawGrabbing = true;
+                    checkPrizeGrab();
+                }
+            }
+            
+            // Claw ascending animation
+            if (clawGrabbing) {
+                clawGroup.position.y += 0.05;
+                
+                if (grabbedPrize) {
+                    grabbedPrize.position.x = clawGroup.position.x;
+                    grabbedPrize.position.z = clawGroup.position.z;
+                    grabbedPrize.position.y = clawGroup.position.y - 2.5;
+                }
+                
+                if (clawGroup.position.y >= 3.5) {
+                    // Check if prize was won
+                    if (grabbedPrize) {
+                        showMessage('🎉 Prijs gewonnen!');
+                        scene.remove(grabbedPrize);
+                        const index = prizes.indexOf(grabbedPrize);
+                        if (index > -1) prizes.splice(index, 1);
+                        
+                        // Add new prize
+                        const x = (Math.random() - 0.5) * 6;
+                        const z = (Math.random() - 0.5) * 4;
+                        createPrize(x, z);
+                    } else {
+                        showMessage('Helaas! Probeer opnieuw.');
+                    }
+                    
+                    // Reset
+                    clawDescending = false;
+                    clawGrabbing = false;
+                    grabbedPrize = null;
+                    gameActive = false;
+                    document.getElementById('insertCoin').style.display = 'inline-block';
+                    document.getElementById('dropButton').style.display = 'none';
+                    document.getElementById('dropButton').disabled = false;
+                    joystick.style.display = 'none';
+                }
+            }
+            
+            renderer.render(scene, camera);
+        }
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        animate();
+        }
+    </script>
+</body>
+</html>
